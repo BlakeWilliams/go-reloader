@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"sync"
@@ -61,15 +64,24 @@ func (app *Application) Started() <-chan struct{} {
 }
 
 func (app *Application) Run(ctx context.Context) error {
+	app.startLock.Lock()
+	if app.started == nil {
+		app.started = make(chan struct{})
+	}
+	app.startLock.Unlock()
+
 	if app.BuildCmd == nil {
+		close(app.started)
 		return ErrBuildCmdNotSet
 	}
 
 	if app.RunCmd == nil {
+		close(app.started)
 		return ErrRunCmdNotSet
 	}
 
 	if app.TargetPort == "" {
+		close(app.started)
 		return ErrPortNotSet
 	}
 
@@ -94,7 +106,13 @@ func (app *Application) Run(ctx context.Context) error {
 	// to start in a bad state for now.
 	err := build(app.BuildCmd, app.Logger)
 	if err != nil {
+		close(app.started)
 		return err
+	}
+
+	target, err := url.Parse("http://127.0.0.1" + app.TargetPort)
+	if err != nil {
+		return fmt.Errorf("could not parse target url: %w", err)
 	}
 
 	go func() {
@@ -117,11 +135,22 @@ func (app *Application) Run(ctx context.Context) error {
 	// wait for the application to start before handling events
 	<-app.Started()
 
+	go func() {
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		_ = http.ListenAndServe(app.Port, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if app.cmd.ProcessState != nil && app.cmd.ProcessState.Exited() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte("application is not running"))
+			}
+			proxy.ServeHTTP(w, r)
+		}))
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
 			if app.cmd != nil {
-				app.cmd.Process.Signal(os.Interrupt)
+				_ = app.cmd.Process.Signal(os.Interrupt)
 			}
 
 			return ctx.Err()
