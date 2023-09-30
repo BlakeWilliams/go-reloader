@@ -2,6 +2,7 @@ package reloader
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -23,14 +24,14 @@ func (w *fsWatcher) Watch(ctx context.Context, dirs []string, events chan<- stri
 	for _, dir := range dirs {
 		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 			if info.IsDir() {
-				return w.watcher.Add("./" + path)
+				return w.watcher.Add(path)
 			}
 
 			return nil
 		})
 
 		if err != nil {
-			return err
+			return fmt.Errorf("could not walk directory %s: %w", dir, err)
 		}
 	}
 
@@ -44,6 +45,7 @@ func (w *fsWatcher) Watch(ctx context.Context, dirs []string, events chan<- stri
 				events <- event.Name
 			case fsnotify.Create:
 				_ = w.watcher.Add("./" + event.Name)
+				events <- event.Name
 			default:
 				continue
 			}

@@ -3,7 +3,6 @@ package reloader
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -34,13 +33,12 @@ func TestIntegration(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		err := app.Run(ctx)
+		err := app.Start(ctx)
 		require.ErrorIs(t, err, context.Canceled)
 	}()
 
 	<-app.Started()
 
-	defer fmt.Println(b.String())
 	req, err := http.NewRequest(http.MethodGet, "http://localhost:4056", nil)
 	req = req.WithContext(ctx)
 	require.NoError(t, err)
@@ -74,7 +72,7 @@ func TestReloader(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		err := app.Run(ctx)
+		err := app.Start(ctx)
 		require.ErrorIs(t, err, context.Canceled)
 	}()
 
@@ -115,7 +113,7 @@ func TestReloader_FileChange(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		err := app.Run(ctx)
+		err := app.Start(ctx)
 		require.ErrorIs(t, err, context.Canceled)
 	}()
 
@@ -124,7 +122,7 @@ func TestReloader_FileChange(t *testing.T) {
 	// Validate that multiple events are ignored.
 	app.watcher.(*mockWatcher).events <- "test"
 
-	time.Sleep(5 * time.Millisecond)
+	time.Sleep(1 * time.Millisecond)
 	cancel()
 	<-done
 

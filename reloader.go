@@ -1,7 +1,6 @@
 package reloader
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/exec"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
@@ -47,7 +45,6 @@ type Application struct {
 	started   chan struct{}
 	startLock sync.Mutex
 
-	cmd     *exec.Cmd
 	watcher watcher
 }
 
@@ -63,7 +60,9 @@ func (app *Application) Started() <-chan struct{} {
 	return app.started
 }
 
-func (app *Application) Run(ctx context.Context) error {
+// Start starts the application and listens for changes, rebuilding and
+// restarting the target application in the background. Start does not block.
+func (app *Application) Start(ctx context.Context) error {
 	app.startLock.Lock()
 	if app.started == nil {
 		app.started = make(chan struct{})
@@ -102,9 +101,15 @@ func (app *Application) Run(ctx context.Context) error {
 		app.watcher = &fsWatcher{watcher: notifier}
 	}
 
+	builder := &builder{
+		buildCmd: app.BuildCmd,
+		runCmd:   app.RunCmd,
+		logger:   app.Logger,
+	}
+
 	// Attempt initial build, if it fails return the error since we don't want
 	// to start in a bad state for now.
-	err := build(app.BuildCmd, app.Logger)
+	err := builder.Build()
 	if err != nil {
 		close(app.started)
 		return err
@@ -116,12 +121,11 @@ func (app *Application) Run(ctx context.Context) error {
 	}
 
 	go func() {
-		cmd, err := run(app.RunCmd, app.Logger)
+		err := builder.Run()
 		if err != nil {
 			app.Logger.Error("could not run application", "err", err)
 		}
 		close(app.started)
-		app.cmd = cmd
 	}()
 
 	events := make(chan string, 10)
@@ -138,21 +142,31 @@ func (app *Application) Run(ctx context.Context) error {
 	go func() {
 		proxy := httputil.NewSingleHostReverseProxy(target)
 		_ = http.ListenAndServe(app.Port, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if app.cmd.ProcessState != nil && app.cmd.ProcessState.Exited() {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = w.Write([]byte("application is not running"))
-			}
-			proxy.ServeHTTP(w, r)
+			// Acquire a read lock to prevent the application from being rebuilt mid-request.
+			builder.WithReadLock(func() {
+				if builder.errText != "" {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					_, _ = w.Write([]byte("encountered an error building/running the application"))
+					_, _ = w.Write([]byte(builder.errText))
+					return
+				}
+
+				if !builder.Running() {
+					w.WriteHeader(http.StatusInternalServerError)
+					fmt.Println(builder.errText)
+					_, _ = w.Write([]byte("application is not running"))
+					return
+				}
+
+				proxy.ServeHTTP(w, r)
+			})
 		}))
 	}()
 
 	for {
 		select {
 		case <-ctx.Done():
-			if app.cmd != nil {
-				_ = app.cmd.Process.Signal(os.Interrupt)
-			}
-
+			builder.Stop()
 			return ctx.Err()
 		case event := <-events:
 			app.Logger.Debug("file changed", "file", event)
@@ -161,48 +175,10 @@ func (app *Application) Run(ctx context.Context) error {
 				<-events
 			}
 
-			_ = app.cmd.Process.Signal(os.Interrupt)
-			_ = app.cmd.Wait()
-
-			err := build(app.BuildCmd, app.Logger)
-			if err != nil {
-				app.Logger.Error("could not build application", "err", err)
+			builder.Stop()
+			if err = builder.Build(); err == nil {
+				_ = builder.Run()
 			}
-
-			cmd, err := run(app.RunCmd, app.Logger)
-			if err != nil {
-				app.Logger.Error("could not run application", "err", err)
-			}
-
-			app.cmd = cmd
 		}
 	}
-}
-
-func run(cmdString []string, logger *slog.Logger) (*exec.Cmd, error) {
-	cmd := exec.Command(cmdString[0], cmdString[1:]...)
-
-	var stdout []byte
-	var stderr []byte
-	cmd.Stdout = bytes.NewBuffer(stdout)
-	cmd.Stderr = bytes.NewBuffer(stderr)
-
-	err := cmd.Start()
-	logger.Debug("run", "cmd", cmdString, "err", err, "stdout", stdout, "stderr", stderr)
-
-	return cmd, err
-}
-
-func build(cmdString []string, logger *slog.Logger) error {
-	cmd := exec.Command(cmdString[0], cmdString[1:]...)
-
-	var stdout []byte
-	var stderr []byte
-	cmd.Stdout = bytes.NewBuffer(stdout)
-	cmd.Stderr = bytes.NewBuffer(stderr)
-
-	err := cmd.Run()
-	logger.Debug("build", "cmd", cmdString, "err", err, "stdout", stdout, "stderr", stderr)
-
-	return err
 }
