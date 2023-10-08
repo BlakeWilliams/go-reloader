@@ -9,19 +9,29 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-type watcher interface {
+type Watcher interface {
 	// Watch starts watching for changes to the application.
-	Watch(ctx context.Context, dirs []string, events chan<- string) error
+	Watch(ctx context.Context, events chan<- string) error
 }
 
 type fsWatcher struct {
 	watcher *fsnotify.Watcher
+	dirs    []string
 }
 
-var _ watcher = (*fsWatcher)(nil)
+var _ Watcher = (*fsWatcher)(nil)
 
-func (w *fsWatcher) Watch(ctx context.Context, dirs []string, events chan<- string) error {
-	for _, dir := range dirs {
+func NewWatcher(dirs ...string) (Watcher, error) {
+	notifier, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("could not create fsnotify watcher: %w", err)
+	}
+
+	return &fsWatcher{watcher: notifier, dirs: dirs}, nil
+}
+
+func (w *fsWatcher) Watch(ctx context.Context, events chan<- string) error {
+	for _, dir := range w.dirs {
 		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 			if info.IsDir() {
 				return w.watcher.Add(path)

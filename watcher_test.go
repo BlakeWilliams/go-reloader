@@ -20,12 +20,12 @@ func TestFsWatcher(t *testing.T) {
 
 	notifier, err := fsnotify.NewWatcher()
 	require.NoError(t, err)
-	watcher := &fsWatcher{watcher: notifier}
+	watcher := &fsWatcher{watcher: notifier, dirs: []string{tmpPath}}
 
 	events := make(chan string)
 	defer close(events)
 	go func() {
-		err = watcher.Watch(context.Background(), []string{tmpPath}, events)
+		err = watcher.Watch(context.Background(), events)
 		require.NoError(t, err)
 	}()
 
@@ -53,12 +53,12 @@ func TestFsWatcher_NewFile(t *testing.T) {
 
 	notifier, err := fsnotify.NewWatcher()
 	require.NoError(t, err)
-	watcher := &fsWatcher{watcher: notifier}
+	watcher := &fsWatcher{watcher: notifier, dirs: []string{tmpPath}}
 
 	events := make(chan string)
 	defer close(events)
 	go func() {
-		err = watcher.Watch(context.Background(), []string{tmpPath}, events)
+		err = watcher.Watch(context.Background(), events)
 		require.NoError(t, err)
 	}()
 

@@ -3,6 +3,7 @@ package reloader
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -19,13 +20,20 @@ func TestIntegration(t *testing.T) {
 		Level: slog.LevelDebug,
 	}))
 
-	app := Application{
-		BuildCmd:   []string{"go", "build", "-o", "./testserver", "./internal/testserver"},
-		RunCmd:     []string{"./testserver"},
-		TargetPort: ":3012",
-		Port:       ":4056",
-		Logger:     logger,
-	}
+	builder := NewBuilder(
+		[]string{"go", "build", "-o", "./testserver", "./internal/testserver"},
+		[]string{"./testserver"},
+		logger,
+		func() bool { return true },
+	)
+	watcher, err := NewWatcher(".")
+	require.NoError(t, err)
+
+	app := New(
+		builder,
+		watcher,
+		logger,
+	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -33,7 +41,7 @@ func TestIntegration(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		err := app.Start(ctx)
+		err := app.ListenAndProxy(ctx, ":4056", ":3012")
 		require.ErrorIs(t, err, context.Canceled)
 	}()
 
@@ -59,20 +67,23 @@ func TestReloader(t *testing.T) {
 		Level: slog.LevelDebug,
 	}))
 
-	app := Application{
-		BuildCmd:   []string{"echo", "build"},
-		RunCmd:     []string{"echo", "run"},
-		TargetPort: ":4030",
-		Logger:     logger,
-	}
+	builder := NewBuilder(
+		[]string{"echo", "build"},
+		[]string{"echo", "run"},
+		logger,
+		func() bool { return true },
+	)
+	watcher, err := NewWatcher(".")
+	require.NoError(t, err)
 
+	app := New(builder, watcher, logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		err := app.Start(ctx)
+		err := app.ListenAndProxy(ctx, ":4056", ":4030")
 		require.ErrorIs(t, err, context.Canceled)
 	}()
 
@@ -88,7 +99,9 @@ type mockWatcher struct {
 	events chan<- string
 }
 
-func (w *mockWatcher) Watch(ctx context.Context, dirs []string, events chan<- string) error {
+func (w *mockWatcher) Watch(ctx context.Context, events chan<- string) error {
+	fmt.Println("calling again")
+	fmt.Println(events)
 	w.events = events
 	return nil
 }
@@ -99,34 +112,39 @@ func TestReloader_FileChange(t *testing.T) {
 		Level: slog.LevelDebug,
 	}))
 
-	app := Application{
-		BuildCmd:   []string{"echo", "build"},
-		RunCmd:     []string{"echo", "run"},
-		TargetPort: ":4030",
-		Logger:     logger,
-		watcher:    &mockWatcher{},
-	}
+	builder := NewBuilder(
+		[]string{"echo", "build"},
+		[]string{"echo", "run"},
+		logger,
+		func() bool { return true },
+	)
+	watcher := &mockWatcher{}
 
+	app := New(builder, watcher, logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		err := app.Start(ctx)
+		err := app.ListenAndProxy(ctx, ":4056", ":4030")
 		require.ErrorIs(t, err, context.Canceled)
 	}()
 
 	<-app.Started()
+	time.Sleep(1 * time.Millisecond)
+	require.NotNil(t, watcher.events)
 	app.watcher.(*mockWatcher).events <- "test"
+
 	// Validate that multiple events are ignored.
 	app.watcher.(*mockWatcher).events <- "test"
 
-	time.Sleep(1 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	cancel()
 	<-done
 
 	logs := strings.Split(b.String(), "\n")
+	fmt.Println(b.String())
 	require.Len(t, logs, 6)
 
 	require.Contains(t, logs[0], "build")

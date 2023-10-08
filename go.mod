@@ -1,4 +1,4 @@
-module github.com/blakewilliams/reloader
+module github.com/blakewilliams/go-reloader
 
 go 1.21.1
 
