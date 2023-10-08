@@ -23,7 +23,13 @@ func TestIntegration(t *testing.T) {
 		[]string{"go", "build", "-o", "./testserver", "./internal/testserver"},
 		[]string{"./testserver"},
 		logger,
-		func() bool { return true },
+		func() bool {
+			res, err := http.Get("http://localhost:3012")
+			if err != nil {
+				return false
+			}
+			return res.StatusCode == 200
+		},
 	)
 	watcher, err := NewWatcher(".")
 	require.NoError(t, err)
