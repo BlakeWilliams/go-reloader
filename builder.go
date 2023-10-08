@@ -152,7 +152,7 @@ func (b *BasicBuilder) Build() error {
 	err := cmd.Run()
 	b.logger.Debug("build", "cmd", b.buildCmd, "err", err, "stdout", stdout, "stderr", stderr)
 	if err != nil {
-		b.errText = err.Error() + "\n\n" + string(stderr)
+		b.errText = err.Error() + "\n\n" + string(stdout) + "\n\n" + string(stderr)
 	} else {
 		b.errText = ""
 	}
