@@ -61,7 +61,7 @@ func (app *Application) ListenAndProxy(ctx context.Context, addr string, targetA
 
 	err := app.builder.Build()
 	if err != nil {
-		return fmt.Errorf("could not build application: %w", err)
+		return fmt.Errorf("could not build application: %w\n\t%s", err, app.builder.ErrorText())
 	}
 
 	target, err := url.Parse("http://127.0.0.1" + targetAddr)

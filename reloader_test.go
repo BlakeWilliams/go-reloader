@@ -45,7 +45,11 @@ func TestIntegration(t *testing.T) {
 		require.ErrorIs(t, err, context.Canceled)
 	}()
 
-	<-app.Started()
+	select {
+	case <-app.Started():
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "timed out waiting for application to start")
+	}
 
 	req, err := http.NewRequest(http.MethodGet, "http://localhost:4056", nil)
 	req = req.WithContext(ctx)
