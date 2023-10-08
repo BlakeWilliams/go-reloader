@@ -3,7 +3,6 @@ package reloader
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -104,8 +103,6 @@ type mockWatcher struct {
 }
 
 func (w *mockWatcher) Watch(ctx context.Context, events chan<- string) error {
-	fmt.Println("calling again")
-	fmt.Println(events)
 	w.events = events
 	return nil
 }
@@ -148,7 +145,6 @@ func TestReloader_FileChange(t *testing.T) {
 	<-done
 
 	logs := strings.Split(b.String(), "\n")
-	fmt.Println(b.String())
 	require.Len(t, logs, 6)
 
 	require.Contains(t, logs[0], "build")

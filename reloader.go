@@ -134,7 +134,6 @@ func (app *Application) ListenAndProxy(ctx context.Context, addr string, targetA
 			app.builder.Stop()
 			return ctx.Err()
 		case event := <-events:
-			fmt.Println(event)
 			app.logger.Debug("file changed", "file", event)
 			// Clear existing queue to prevent rapid rebuilds.
 			for i := 0; i < len(events); i++ {

@@ -92,15 +92,16 @@ func (b *BasicBuilder) Run() error {
 
 	cmd := exec.Command(b.runCmd[0], b.runCmd[1:]...)
 
-	var stdout []byte
-	var stderr []byte
-	cmd.Stdout = bytes.NewBuffer(stdout)
-	cmd.Stderr = bytes.NewBuffer(stderr)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	err := cmd.Start()
 	b.logger.Debug("run", "cmd", b.runCmd, "err", err, "stdout", stdout, "stderr", stderr)
 	if err != nil {
-		b.errText = err.Error() + "\n\n" + string(stderr)
+		b.logger.Error("run failed", "err", err, "stdout", stdout, "stderr", stderr, "cmd", b.runCmd)
+		b.errText = err.Error() + "\n stdout:" + stdout.String() + "\nstderr:" + stderr.String()
 	} else {
 		b.errText = ""
 		b.running = cmd
@@ -144,15 +145,16 @@ func (b *BasicBuilder) Build() error {
 
 	cmd := exec.Command(b.buildCmd[0], b.buildCmd[1:]...)
 
-	var stdout []byte
-	var stderr []byte
-	cmd.Stdout = bytes.NewBuffer(stdout)
-	cmd.Stderr = bytes.NewBuffer(stderr)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	err := cmd.Run()
 	b.logger.Debug("build", "cmd", b.buildCmd, "err", err, "stdout", stdout, "stderr", stderr)
 	if err != nil {
-		b.errText = err.Error() + "\n\n" + string(stdout) + "\n\n" + string(stderr)
+		b.logger.Error("build failed", "err", err, "stdout", stdout, "stderr", stderr, "cmd", b.runCmd)
+		b.errText = err.Error() + "\n stdout:" + stdout.String() + "\nstderr:" + stderr.String()
 	} else {
 		b.errText = ""
 	}
