@@ -91,17 +91,14 @@ func (b *BasicBuilder) Run() error {
 	}
 
 	cmd := exec.Command(b.runCmd[0], b.runCmd[1:]...)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	err := cmd.Start()
-	b.logger.Debug("run", "cmd", b.runCmd, "err", err, "stdout", stdout, "stderr", stderr)
+	b.logger.Debug("run", "cmd", b.runCmd, "err", err)
 	if err != nil {
-		b.logger.Error("run failed", "err", err, "stdout", stdout, "stderr", stderr, "cmd", b.runCmd)
-		b.errText = err.Error() + "\n stdout:" + stdout.String() + "\nstderr:" + stderr.String()
+		b.logger.Error("run failed", "err", err, "cmd", b.runCmd)
+		b.errText = err.Error()
 	} else {
 		b.errText = ""
 		b.running = cmd
@@ -151,9 +148,9 @@ func (b *BasicBuilder) Build() error {
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	b.logger.Debug("build", "cmd", b.buildCmd, "err", err, "stdout", stdout, "stderr", stderr)
+	b.logger.Debug("build", "cmd", b.buildCmd, "err", err, "stdout", stdout.String(), "stderr", stderr.String())
 	if err != nil {
-		b.logger.Error("build failed", "err", err, "stdout", stdout, "stderr", stderr, "cmd", b.runCmd)
+		b.logger.Error("build failed", "err", err, "stdout", stdout.String(), "stderr", stderr.String(), "cmd", b.runCmd)
 		b.errText = err.Error() + "\n stdout:" + stdout.String() + "\nstderr:" + stderr.String()
 	} else {
 		b.errText = ""
@@ -169,8 +166,17 @@ func (b *BasicBuilder) Stop() {
 	defer b.mu.Unlock()
 
 	if b.Running() {
+		killed := false
+		go func() {
+			<-time.After(10 * time.Second)
+			if !killed {
+				b.logger.Error("application did not stop after 10 seconds, killing", "cmd", b.runCmd)
+				_ = b.running.Process.Kill()
+			}
+		}()
 		_ = b.running.Process.Signal(os.Interrupt)
 		_ = b.running.Wait()
+		killed = true
 	}
 	b.running = nil
 }
